@@ -10,7 +10,7 @@ const credentials = {
   key: fs.readFileSync('server.key'),
   cert: fs.readFileSync('server.crt'),
 };
-const httpsServer = https.createServer(credentials, app).listen(3000, () => {
+const httpsServer = https.createServer(credentials, app).listen(3001, () => {
   console.log('react dev server on 3000');
 });
 const socketServer = https.createServer(credentials).listen(8080, () => {
@@ -30,6 +30,8 @@ wss.on('connection', (ws) => {
       case 'open':
         console.log('testing switch statement.');
         break;
+      case 'localDescription':
+        console.log('localDescriptionReceived');
       default:
         console.log('default condition reached.');s
     }
