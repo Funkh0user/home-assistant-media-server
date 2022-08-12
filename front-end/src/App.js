@@ -1,59 +1,106 @@
 import React, { useEffect, useState, useRef } from 'react';
 
 function App() {
-  const [localMedia, setLocalMedia] = useState();
   const localMediaRef = useRef();
-  const [remoteMedia, setRemoteMedia] = useState();
-
-  const peerConnection = new RTCPeerConnection();
-
-  const constraints = {
-    video: true,
-    audio: false,
-  };
+  const peerConnection = useRef();
+  const username = `mark${Math.random() * 10}`;
 
   // open websocket to signaling server.
   const ws = new WebSocket(`wss://192.168.0.24:8080`);
 
-  ws.addEventListener('open', () => {
-    console.log('connection is open');
-    ws.send(JSON.stringify({ message: 'open' }));
+  // const createPeerConnection = () => {
+  peerConnection.current = new RTCPeerConnection();
 
-    ws.addEventListener('message', (args) => {
-      console.log('received test event.', args);
-    });
-  });
+  peerConnection.current.onicecandidate = (candidate) => {
+    console.log('candidate', candidate);
+  };
 
-  // functions for gathering local and remote media.
+  peerConnection.current.onnegotiationneeded = (args) => {
+    console.log('negotiation needed', args);
+  };
+  peerConnection.ontrack = (track) => {
+    console.log(track);
+  };
+  // };
 
   useEffect(() => {
     const getLocalMedia = async () => {
       let mediaStream;
+      const constraints = {
+        video: true,
+        audio: false,
+      };
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (error) {
         console.log('error getting local media devices: ', error);
       }
-      console.log(mediaStream);
-      setLocalMedia(mediaStream);
-      localMediaRef.current = mediaStream;
       document.getElementById('localVideo').srcObject = mediaStream;
+      mediaStream
+        .getTracks()
+        .forEach(async (track) =>
+          peerConnection.current.addTrack(track, mediaStream)
+        );
     };
     getLocalMedia();
   }, []);
 
   useEffect(() => {
-    const getRemoteMedia = async () => {
-      peerConnection.createOffer().then((offer) => {
-        peerConnection.setLocalDescription(offer);
-        ws.send(JSON.stringify({
-          message: "localDescription",
-          data: peerConnection.localDescription
-        }))
-      })
-    }
-    getRemoteMedia();
-  }, [])
+    ws.addEventListener('open', () => {
+      console.log('connection is open');
+
+      createSdpOffer();
+
+      ws.addEventListener('message', (message) => {
+        console.log('received message.', message);
+        console.log(
+          'received message from server.',
+          message,
+          JSON.parse(message.data)
+        );
+        switch (JSON.parse(message.data).type) {
+          case 'sdpOffer':
+            console.log(JSON.parse(message.data).sender);
+            console.log(username, JSON.parse(message.data).sender);
+            if (JSON.parse(message.data).sender !== username)
+              createSdpAnswer(JSON.parse(message.data).data);
+            break;
+          default:
+            console.log('default case reached.');
+        }
+      });
+      ws.addEventListener('error', (args) => {
+        console.log('Error: ', args);
+      });
+    });
+
+    const createSdpOffer = async () => {
+      peerConnection.current.createOffer().then(async (offer) => {
+        console.log('peerOffer', offer);
+        await peerConnection.current.setLocalDescription();
+
+        console.log(
+          'Peer localDescription',
+          peerConnection.current.localDescription
+        );
+        try {
+          ws.send(
+            JSON.stringify({
+              message: 'sdpOffer',
+              sender: username,
+              data: peerConnection.current.localDescription,
+            })
+          );
+        } catch (error) {
+          console.log('trycatch error', error);
+        }
+      });
+    };
+
+    const createSdpAnswer = (data) => {
+      console.log('createSdpAnswer', data);
+    };
+  }, []);
 
   return (
     <div>
