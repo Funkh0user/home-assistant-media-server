@@ -18,26 +18,36 @@ const socketServer = https.createServer(credentials).listen(8080, () => {
 });
 
 const wss = new WebSocketServer({ server: socketServer });
-
+let allParticipants = [];
 let peerCount = 0;
+
 wss.on('connection', (ws) => {
-  console.log(`peer ${peerCount} connected`);
-  const participant = new Participant(peerCount);
-  peerCount += 1;
   ws.on('message', (peerMessage) => {
+
     const { message, sender, data } = JSON.parse(peerMessage);
-    console.log('received message from peer.');
+    peerCount += 1;
+    const participant = new Participant(peerCount, ws, sender);
+
+    console.log('received message from peer: ', sender);
     participant.username = sender;
+    allParticipants.push(participant);
     switch (message) {
       case 'sdpOffer':
-        console.log('localDescriptionReceived', sender, data);
-        ws.send(
-          JSON.stringify({
-            type: 'sdpOffer',
-            data: data,
-            sender: participant.username,
-          })
-        );
+        console.log('localDescriptionReceived', sender);
+        allParticipants.forEach((parti) => {
+          console.log('trig', parti.username, participant.username);
+          if (parti.username !== participant.username) {
+            console.log('trigger', participant.username);
+            participant.ws.send(
+              JSON.stringify({
+                type: 'sdpOffer',
+                data: data,
+                sender: parti.username,
+                ////add recipient property?
+              })
+            );
+          }
+        });
         break;
       default:
         console.log('default condition reached.');
@@ -51,8 +61,9 @@ app.get('/', (req, res) => {
 
 // functions what handles signaling workflowz.
 class Participant {
-  constructor(data) {
-    this.id = data.id;
+  constructor(id, ws, username) {
+    this.id = id;
+    this.ws = ws;
+    this.username = username;
   }
-  username = '';
 }

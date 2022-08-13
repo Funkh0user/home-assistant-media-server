@@ -1,9 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 
 function App() {
-  const localMediaRef = useRef();
   const peerConnection = useRef();
-  const username = `mark${Math.random() * 10}`;
+  const username = `mark${Math.floor(Math.random() * 10)}`;
 
   // open websocket to signaling server.
   const ws = new WebSocket(`wss://192.168.0.24:8080`);
@@ -60,10 +59,11 @@ function App() {
         );
         switch (JSON.parse(message.data).type) {
           case 'sdpOffer':
+            console.log(username);
             console.log(JSON.parse(message.data).sender);
-            console.log(username, JSON.parse(message.data).sender);
             if (JSON.parse(message.data).sender !== username)
               createSdpAnswer(JSON.parse(message.data).data);
+
             break;
           default:
             console.log('default case reached.');
@@ -76,6 +76,7 @@ function App() {
 
     const createSdpOffer = async () => {
       peerConnection.current.createOffer().then(async (offer) => {
+        console.log(username);
         console.log('peerOffer', offer);
         await peerConnection.current.setLocalDescription();
 
