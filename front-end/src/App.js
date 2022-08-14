@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 function App() {
   const peerConnection = useRef();
@@ -7,83 +7,36 @@ function App() {
   // open websocket to signaling server.
   const ws = new WebSocket(`wss://192.168.0.24:8080`);
 
-  // const createPeerConnection = () => {
-  peerConnection.current = new RTCPeerConnection();
-
-  peerConnection.current.onicecandidate = (candidate) => {
-    console.log('candidate', candidate);
-  };
-
-  peerConnection.current.onnegotiationneeded = (args) => {
-    console.log('negotiation needed', args);
-  };
-  peerConnection.ontrack = (track) => {
-    console.log(track);
-  };
-  // };
-
   useEffect(() => {
-    const getLocalMedia = async () => {
-      let mediaStream;
-      const constraints = {
-        video: true,
-        audio: false,
+    const createPeerConnection = async () => {
+      peerConnection.current = new RTCPeerConnection({
+        configuration: {
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+        },
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      });
+
+      peerConnection.current.onicecandidate = (candidate) => {
+        console.log('Ice candidate', candidate);
+        ws.send(
+          JSON.stringify({
+            message: 'iceCandidate',
+            data: candidate,
+            sender: username,
+          })
+        );
       };
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (error) {
-        console.log('error getting local media devices: ', error);
-      }
-      document.getElementById('localVideo').srcObject = mediaStream;
-      mediaStream
-        .getTracks()
-        .forEach(async (track) =>
-          peerConnection.current.addTrack(track, mediaStream)
-        );
-    };
-    getLocalMedia();
-  }, []);
 
-  useEffect(() => {
-    ws.addEventListener('open', () => {
-      console.log('connection is open');
-
-      createSdpOffer();
-
-      ws.addEventListener('message', (message) => {
-        console.log('received message.', message);
-        console.log(
-          'received message from server.',
-          message,
-          JSON.parse(message.data)
-        );
-        switch (JSON.parse(message.data).type) {
-          case 'sdpOffer':
-            console.log(username);
-            console.log(JSON.parse(message.data).sender);
-            if (JSON.parse(message.data).sender !== username)
-              createSdpAnswer(JSON.parse(message.data).data);
-
-            break;
-          default:
-            console.log('default case reached.');
-        }
-      });
-      ws.addEventListener('error', (args) => {
-        console.log('Error: ', args);
-      });
-    });
-
-    const createSdpOffer = async () => {
-      peerConnection.current.createOffer().then(async (offer) => {
-        console.log(username);
-        console.log('peerOffer', offer);
+      peerConnection.current.onnegotiationneeded = async (event) => {
+        console.log('Negotiation needed', event);
+        await peerConnection.current.createOffer();
         await peerConnection.current.setLocalDescription();
-
         console.log(
-          'Peer localDescription',
+          `${username}'s localDescription`,
           peerConnection.current.localDescription
         );
+
         try {
           ws.send(
             JSON.stringify({
@@ -95,11 +48,74 @@ function App() {
         } catch (error) {
           console.log('trycatch error', error);
         }
-      });
+      };
+      peerConnection.current.ontrack = (track) => {
+        console.log('New Track', track);
+      };
+      peerConnection.current.onIcConnectionStateChange = (newState) => {
+        console.log('ice connection state changed: ', newState);
+      };
+      peerConnection.current.onsignalingStateChange = (newState) => {
+        console.log('Signaling state changed: ', newState);
+      };
     };
 
-    const createSdpAnswer = (data) => {
-      console.log('createSdpAnswer', data);
+    const getLocalMedia = async () => {
+      let stream;
+      const constraints = {
+        video: true,
+        audio: false,
+      };
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        stream
+          .getTracks()
+          .forEach(
+            async (track) =>
+              await peerConnection.current.addTrack(track, stream)
+          );
+        document.getElementById('localVideo').srcObject = stream;
+      } catch (error) {
+        console.log('error getting local media devices: ', error);
+      }
+    };
+    getLocalMedia();
+    createPeerConnection();
+  }, []);
+
+  useEffect(() => {
+    ws.addEventListener('open', () => {
+      console.log('connection is open');
+
+      ws.addEventListener('message', (message) => {
+        const sender = JSON.parse(message.data).sender;
+        const data = JSON.parse(message.data);
+        console.log('received data from sender: ', sender, data);
+
+        switch (JSON.parse(message.data).type) {
+          case 'sdpOffer':
+            console.log('my name', username);
+            console.log('senders name', sender);
+            if (sender !== username)
+              createAnswer(JSON.parse(message.data).data);
+
+            break;
+          case 'iceCandidate':
+            console.log('adding ice candidate from: ', sender);
+            peerConnection.current.addIceCandidate(data);
+            break;
+          default:
+            console.log('default case reached.');
+        }
+      });
+      ws.addEventListener('error', (error) => {
+        console.log('Error: ', error);
+      });
+    });
+
+    const createAnswer = async (data) => {
+      console.log('trigger createAnswer');
+      // await peerConnection.current.createAnswer(data);
     };
   }, []);
 

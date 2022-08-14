@@ -4,7 +4,7 @@ const app = express();
 app.use(express.static('./front-end/build'));
 const http = require('http');
 const https = require('https');
-const { WebSocketServer } = require('ws');
+const { WebSocketServer, WebSocket } = require('ws');
 
 const credentials = {
   key: fs.readFileSync('server.key'),
@@ -23,30 +23,32 @@ let peerCount = 0;
 
 wss.on('connection', (ws) => {
   ws.on('message', (peerMessage) => {
-
     const { message, sender, data } = JSON.parse(peerMessage);
     peerCount += 1;
     const participant = new Participant(peerCount, ws, sender);
-
-    console.log('received message from peer: ', sender);
-    participant.username = sender;
     allParticipants.push(participant);
+
     switch (message) {
       case 'sdpOffer':
-        console.log('localDescriptionReceived', sender);
-        allParticipants.forEach((parti) => {
-          console.log('trig', parti.username, participant.username);
-          if (parti.username !== participant.username) {
-            console.log('trigger', participant.username);
-            participant.ws.send(
+        console.log('localDescription / sdp offer from: ', sender);
+        wss.clients.forEach((client) => {
+          if (client !== ws)
+            client.send(
+              JSON.stringify({ type: 'sdpOffer', data: data, sender: sender })
+            );
+        });
+        break;
+      case 'iceCandidate':
+        console.log('Ice candidate from: ', sender, data);
+        wss.clients.forEach((client) => {
+          if (client !== ws)
+            client.send(
               JSON.stringify({
-                type: 'sdpOffer',
+                type: 'iceCandidate',
                 data: data,
-                sender: parti.username,
-                ////add recipient property?
+                sender: sender,
               })
             );
-          }
         });
         break;
       default:
