@@ -1,8 +1,12 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 function App() {
   const peerConnection = useRef();
-  const username = `mark${Math.floor(Math.random() * 10)}`;
+  const localVideo = useRef();
+  const remoteVideo = useRef();
+  const [username, setUsername] = useState(
+    `mark${Math.floor(Math.random() * 10)}`
+  );
 
   // open websocket to signaling server.
   const ws = new WebSocket(`wss://192.168.0.24:8080`);
@@ -11,18 +15,18 @@ function App() {
     const createPeerConnection = async () => {
       peerConnection.current = new RTCPeerConnection({
         configuration: {
-          offerToReceiveAudio: true,
+          offerToReceiveAudio: false,
           offerToReceiveVideo: true,
         },
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
       });
 
-      peerConnection.current.onicecandidate = (candidate) => {
-        console.log('Ice candidate', candidate);
+      peerConnection.current.onicecandidate = (event) => {
+        console.log('Sending Ice candidate to server', event.candidate);
         ws.send(
           JSON.stringify({
             message: 'iceCandidate',
-            data: candidate,
+            data: event.candidate,
             sender: username,
           })
         );
@@ -30,7 +34,10 @@ function App() {
 
       peerConnection.current.onnegotiationneeded = async (event) => {
         console.log('Negotiation needed', event);
-        await peerConnection.current.createOffer();
+        await peerConnection.current.createOffer({
+          offerToReceiveAudio: false,
+          offerToReceiveVideo: true,
+        });
         await peerConnection.current.setLocalDescription();
         console.log(
           `${username}'s localDescription`,
@@ -49,15 +56,36 @@ function App() {
           console.log('trycatch error', error);
         }
       };
-      peerConnection.current.ontrack = (track) => {
-        console.log('New Track', track);
+
+      peerConnection.current.ontrack = ({ track, streams }) => {
+        console.log('New remote mediastream', track, streams);
+        remoteVideo.current = document.getElementById('remoteVideo');
+        remoteVideo.current.src = streams[0];
+        remoteVideo.current.srcObject = streams[0];
+        console.log(remoteVideo.current);
       };
-      peerConnection.current.onIcConnectionStateChange = (newState) => {
+
+      peerConnection.current.onIceConnectionStateChange = (newState) => {
         console.log('ice connection state changed: ', newState);
       };
+
       peerConnection.current.onsignalingStateChange = (newState) => {
         console.log('Signaling state changed: ', newState);
       };
+
+      // const offer = await peerConnection.current.createOffer({
+      //   offerToReceiveAudio: false,
+      //   offerToReceiveVideo: true,
+      // });
+      // await peerConnection.current.setLocalDescription(offer);
+
+      // ws.send(
+      //   JSON.stringify({
+      //     message: 'sdpOffer',
+      //     data: peerConnection.localDescription,
+      //     sender: username,
+      //   })
+      // );
     };
 
     const getLocalMedia = async () => {
@@ -66,18 +94,15 @@ function App() {
         video: true,
         audio: false,
       };
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        stream
-          .getTracks()
-          .forEach(
-            async (track) =>
-              await peerConnection.current.addTrack(track, stream)
-          );
-        document.getElementById('localVideo').srcObject = stream;
-      } catch (error) {
-        console.log('error getting local media devices: ', error);
-      }
+      localVideo.current = document.getElementById('localVideo');
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('local mediastream object', stream);
+      localVideo.current.srcObject = stream;
+      stream
+        .getTracks()
+        .forEach(
+          async (track) => await peerConnection.current.addTrack(track, stream)
+        );
     };
     getLocalMedia();
     createPeerConnection();
@@ -87,23 +112,36 @@ function App() {
     ws.addEventListener('open', () => {
       console.log('connection is open');
 
-      ws.addEventListener('message', (message) => {
+      ws.addEventListener('message', async (message) => {
         const sender = JSON.parse(message.data).sender;
         const data = JSON.parse(message.data);
-        console.log('received data from sender: ', sender, data);
 
-        switch (JSON.parse(message.data).type) {
+        switch (data.type) {
           case 'sdpOffer':
             console.log('my name', username);
             console.log('senders name', sender);
-            if (sender !== username)
-              createAnswer(JSON.parse(message.data).data);
+            console.log(data);
+            if (!data.data) return;
+            await peerConnection.current.setRemoteDescription({
+              type: data.data.type,
+              sdp: data.data.sdp,
+            });
+            await peerConnection.current.setLocalDescription();
+            ws.send(
+              JSON.stringify({
+                message: 'sdpOffer',
+                data: peerConnection.localDescription,
+                sender: username,
+              })
+            );
+            break;
 
-            break;
           case 'iceCandidate':
-            console.log('adding ice candidate from: ', sender);
-            peerConnection.current.addIceCandidate(data);
+            console.log('adding ice candidate from: ', sender, data.data);
+            if (!data.data)
+              await peerConnection.current.addIceCandidate(data.data);
             break;
+
           default:
             console.log('default case reached.');
         }
@@ -112,11 +150,6 @@ function App() {
         console.log('Error: ', error);
       });
     });
-
-    const createAnswer = async (data) => {
-      console.log('trigger createAnswer');
-      // await peerConnection.current.createAnswer(data);
-    };
   }, []);
 
   return (
@@ -127,12 +160,14 @@ function App() {
         autoplay="autoplay"
         id="localVideo"
         style={{ border: '1px solid black' }}
+        ref={localVideo}
       ></video>
       <video
         muted
         autoplay="autoplay"
         id="remoteVideo"
         style={{ border: '1px solid black' }}
+        ref={remoteVideo}
       ></video>
     </div>
   );

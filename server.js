@@ -23,6 +23,7 @@ let peerCount = 0;
 
 wss.on('connection', (ws) => {
   ws.on('message', (peerMessage) => {
+    console.log(JSON.parse(peerMessage));
     const { message, sender, data } = JSON.parse(peerMessage);
     peerCount += 1;
     const participant = new Participant(peerCount, ws, sender);
