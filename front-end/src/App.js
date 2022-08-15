@@ -9,7 +9,7 @@ function App() {
   );
 
   // open websocket to signaling server.
-  const ws = new WebSocket(`wss://192.168.0.24:8080`);
+  const ws = new WebSocket(`wss://192.168.0.29:8080`);
 
   useEffect(() => {
     const createPeerConnection = async () => {
@@ -20,6 +20,38 @@ function App() {
         },
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
       });
+
+      peerConnection.current.onnegotiationneeded = async (event) => {
+        console.log('Negotiation needed', event);
+        try {
+          await peerConnection.current.createOffer({
+            offerToReceiveAudio: false,
+            offerToReceiveVideo: true,
+          });
+        } catch (error) {
+          console.log('create offer error', error)
+        }
+        try {
+          await peerConnection.current.setLocalDescription();
+        } catch (error) {
+          console.log('set local description error: ', error)
+        }
+        console.log(
+          `${username}'s localDescription`,
+          peerConnection.current.localDescription
+        );
+        try {
+          ws.send(
+            JSON.stringify({
+              message: 'sdpOffer',
+              sender: username,
+              data: peerConnection.current.localDescription,
+            })
+          );
+        } catch (error) {
+          console.log('send sdp offer error', error);
+        }
+      };
 
       peerConnection.current.onicecandidate = (event) => {
         console.log('Sending Ice candidate to server', event.candidate);
@@ -32,37 +64,16 @@ function App() {
         );
       };
 
-      peerConnection.current.onnegotiationneeded = async (event) => {
-        console.log('Negotiation needed', event);
-        await peerConnection.current.createOffer({
-          offerToReceiveAudio: false,
-          offerToReceiveVideo: true,
-        });
-        await peerConnection.current.setLocalDescription();
-        console.log(
-          `${username}'s localDescription`,
-          peerConnection.current.localDescription
-        );
-
-        try {
-          ws.send(
-            JSON.stringify({
-              message: 'sdpOffer',
-              sender: username,
-              data: peerConnection.current.localDescription,
-            })
-          );
-        } catch (error) {
-          console.log('trycatch error', error);
-        }
-      };
-
       peerConnection.current.ontrack = ({ track, streams }) => {
         console.log('New remote mediastream', track, streams);
         remoteVideo.current = document.getElementById('remoteVideo');
-        remoteVideo.current.src = streams[0];
-        remoteVideo.current.srcObject = streams[0];
-        console.log(remoteVideo.current);
+        try {
+          remoteVideo.current.srcObject = streams[0];
+          document.getElementById('remoteVideo').srcObject = streams[0];
+        } catch(error) {
+          console.log('addtrack error', error)
+        }
+        console.log(remoteVideo.current.srcObject);
       };
 
       peerConnection.current.onIceConnectionStateChange = (newState) => {
@@ -102,7 +113,20 @@ function App() {
         .getTracks()
         .forEach(
           async (track) => await peerConnection.current.addTrack(track, stream)
-        );
+        )
+        const offer = await peerConnection.current.createOffer({
+        offerToReceiveAudio: false,
+        offerToReceiveVideo: true,
+      });
+      await peerConnection.current.setLocalDescription(offer);
+
+      ws.send(
+        JSON.stringify({
+          message: 'sdpOffer',
+          data: peerConnection.localDescription,
+          sender: username,
+        })
+      );
     };
     getLocalMedia();
     createPeerConnection();
@@ -122,11 +146,16 @@ function App() {
             console.log('senders name', sender);
             console.log(data);
             if (!data.data) return;
-            await peerConnection.current.setRemoteDescription({
+            try {
+
+              await peerConnection.current.setRemoteDescription({
               type: data.data.type,
-              sdp: data.data.sdp,
-            });
-            await peerConnection.current.setLocalDescription();
+                sdp: data.data.sdp,
+              });
+              await peerConnection.current.setLocalDescription(await peerConnection.current.createAnswer());
+            } catch (error) {
+              console.log('error setting remote description: ', error)
+            }
             ws.send(
               JSON.stringify({
                 message: 'sdpOffer',
@@ -138,7 +167,7 @@ function App() {
 
           case 'iceCandidate':
             console.log('adding ice candidate from: ', sender, data.data);
-            if (!data.data)
+            if (data.data)
               await peerConnection.current.addIceCandidate(data.data);
             break;
 
