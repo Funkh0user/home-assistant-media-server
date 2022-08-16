@@ -21,10 +21,12 @@ function App() {
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
       });
 
+      // peerConnection.current.createDataChannel("channel");
       peerConnection.current.onnegotiationneeded = async (event) => {
         console.log('Negotiation needed', event);
+        let offer;
         try {
-          await peerConnection.current.createOffer({
+          offer = await peerConnection.current.createOffer({
             offerToReceiveAudio: false,
             offerToReceiveVideo: true,
           });
@@ -32,7 +34,7 @@ function App() {
           console.log('create offer error', error)
         }
         try {
-          await peerConnection.current.setLocalDescription();
+          await peerConnection.current.setLocalDescription(offer);
         } catch (error) {
           console.log('set local description error: ', error)
         }
@@ -114,11 +116,11 @@ function App() {
         .forEach(
           async (track) => await peerConnection.current.addTrack(track, stream)
         )
-        const offer = await peerConnection.current.createOffer({
-        offerToReceiveAudio: false,
-        offerToReceiveVideo: true,
-      });
-      await peerConnection.current.setLocalDescription(offer);
+      //   const offer = await peerConnection.current.createOffer({
+      //   offerToReceiveAudio: false,
+      //   offerToReceiveVideo: true,
+      // });
+      // await peerConnection.current.setLocalDescription(offer);
 
       ws.send(
         JSON.stringify({
@@ -139,28 +141,35 @@ function App() {
       ws.addEventListener('message', async (message) => {
         const sender = JSON.parse(message.data).sender;
         const data = JSON.parse(message.data);
-
+        const answer = data.answer;
+        console.log(sender,data,answer);
         switch (data.type) {
           case 'sdpOffer':
             console.log('my name', username);
             console.log('senders name', sender);
             console.log(data);
             if (!data.data) return;
+            if(answer) {
+              peerConnection.current.setLocalDescription(answer);
+            }
             try {
-
               await peerConnection.current.setRemoteDescription({
-              type: data.data.type,
+                type: data.data.type,
                 sdp: data.data.sdp,
               });
-              await peerConnection.current.setLocalDescription(await peerConnection.current.createAnswer());
+              await peerConnection.current.createAnswer().then(async(answer) => {
+                await peerConnection.current.setLocalDescription(answer)
+                console.log(peerConnection.current.localDescription)
+              });
             } catch (error) {
               console.log('error setting remote description: ', error)
-            }
+            } // do we need to send answer instead......
             ws.send(
               JSON.stringify({
                 message: 'sdpOffer',
-                data: peerConnection.localDescription,
+                data: peerConnection.current.localDescription,
                 sender: username,
+                answer: true
               })
             );
             break;

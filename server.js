@@ -24,7 +24,7 @@ let peerCount = 0;
 wss.on('connection', (ws) => {
   ws.on('message', (peerMessage) => {
     console.log(JSON.parse(peerMessage));
-    const { message, sender, data } = JSON.parse(peerMessage);
+    const { message, sender, data, answer } = JSON.parse(peerMessage);
     peerCount += 1;
     const participant = new Participant(peerCount, ws, sender);
     allParticipants.push(participant);
@@ -35,7 +35,7 @@ wss.on('connection', (ws) => {
         wss.clients.forEach((client) => {
           if (client !== ws)
             client.send(
-              JSON.stringify({ type: 'sdpOffer', data: data, sender: sender })
+              JSON.stringify({ type: 'sdpOffer', data: data, sender: sender, answer: answer })
             );
         });
         break;
